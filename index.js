@@ -1,10 +1,10 @@
-// const qrcode = require("qrcode-terminal");
 const qrimage = require("qr-image");
 const express = require("express");
 const app = express();
-const port = 3030;
+const port = 3000;
 const accounts = {};
 const clients = [];
+const logs = [];
 
 const { Client, LocalAuth, MessageMedia } = require("whatsapp-web.js");
 const e = require("express");
@@ -30,37 +30,38 @@ function start_client(index) {
     connected_to: null,
   };
   event_liseners();
-  client.initialize();
+  // client.initialize();
 
   function event_liseners() {
     client.on("disconnected", () => {
       delete accounts[clients[index].connected_to];
-      client.initialize();
+      clients[index].connected_to = null;
+      // client.initialize();
       client.resetState();
-      console.log("disconnected", " ", index);
+      logger("disconnected", " ", index);
       clients[index].state = "waiting for qr";
     });
     client.on("qr", (qr) => {
-      console.log("qr", " ", index);
+      logger("qr", " ", index);
       if (clients[index].connected_to != null) {
-        accounts[clients[index].connected_to].qrr = qr;
-        accounts[clients[index].connected_to].refreshes++;
-        console.log("qr", " ", clients[index].connected_to);
+        let connected_to = clients[index].connected_to;
+        accounts[connected_to].qrr = qr;
+        logger("qr", " ", connected_to);
       }
       // cb_no_auth();
     });
     client.on("ready", () => {
-      console.log("Client is ready!");
+      logger("Client is ready!");
       clients[index].state = "ready";
       if (clients[index].connected_to != null) {
-        console.log("client connected", " ", clients[index].connected_to);
+        logger("client connected", " ", clients[index].connected_to);
         accounts[clients[index].connected_to].intializing = false;
       }
-      console.log("client connected", " ", index);
+      logger("client connected", " ", index);
     });
 
     client.on("authenticated", () => {
-      console.log("Client is authed!");
+      logger("Client is authed!");
       // cb_auth();
     });
   }
@@ -81,25 +82,44 @@ function initialize_client(token) {
     accounts[token].client = client;
     accounts[token].client_index = client_index;
     accounts[token].qrr = "";
-    accounts[token].refreshes = 0;
+    client.initialize();
     return true;
   } else {
     return false;
   }
 }
 
-app.get("/get_refreshes/:token", (req, res) => {
-  res.send(`${accounts[req.params.token].refreshes}`);
+app.get("/add_client", async (req, res) => {
+  start_client(clients.length);
+  res.send("added " + clients.length - 1);
 });
 
-app.get("/destroy/:token", (req, res) => {
+app.get("/get_clients_statuses", async (req, res) => {
+  res.send(
+    clients.map((el, index) => {
+      return { index: index, state: el.state };
+    })
+  );
+});
+
+app.get("/get_logs", async (req, res) => {
+  res.send(logs);
+});
+app.get("/clear_logs", async (req, res) => {
+  logs = [];
+  res.send("cleared");
+});
+
+app.get("/destroy/:token", async (req, res) => {
   let index = accounts[req.params.token].client_index;
   let client = accounts[req.params.token].client;
   delete accounts[req.params.token];
-  client.initialize();
-  client.resetState();
-  console.log("disconnected", " ", index);
+  await client.logout();
+  await client.resetState();
+  // await client.initialize();
+  logger("disconnected", " ", index);
   clients[index].state = "waiting for qr";
+  res.send("destroyed");
   // accounts[req.params.token].destroying = false;
 });
 app.get("/get_qr/:token", (req, res) => {
@@ -116,16 +136,8 @@ app.get("/get_qr/:token", (req, res) => {
     <body>
     <img src="data:image/png;base64,${Buffer.from(img).toString("base64")}">
     <script>
-    let refreshes = ${accounts[req.params.token].refreshes};
     setInterval(()=>{
       location.href=location.href
-        // fetch("./get_refreshes/${req.params.token}").then((r)=>{
-        //     r.text().then((txt)=>{
-        //         if (txt.trim() != refreshes){
-        //             location.href=location.href
-        //         }
-        //     })
-        // })
     },1000)
     </script>
     </body>
@@ -150,6 +162,19 @@ app.get("/get_qr/:token", (req, res) => {
     } else {
       res.send("Pending client stopping");
     }
+  }
+});
+
+app.get("/get_state/:token", (req, res) => {
+  if (accounts[req.params.token] != null) {
+    if (accounts[req.params.token].intializing == false) {
+      let index = accounts[req.params.token].client_index;
+      res.send(clients[index].state);
+    } else {
+      res.send("pending connection");
+    }
+  } else {
+    res.send("not started the client");
   }
 });
 
@@ -230,6 +255,14 @@ app.get("/send_message/:token", (req, res) => {
 
 app
   .listen(port, () => {
-    console.log(`Example app listening on port ${port}`);
+    logger(`Example app listening on port ${port}`);
   })
   .setTimeout(15 * 1000);
+
+function logger(...args) {
+  console.log(...args);
+  logs.push({
+    time: Date.now(),
+    message: args,
+  });
+}
