@@ -40,12 +40,14 @@ fs.readFile(state_file, function read(err, data) {
 });
 
 setInterval(write_state, 1000);
+start_cron();
+
 // TODO: UNCOMMENT
-// for (let index = 0; index < 5; index++) {
-//   setTimeout(() => {
-//     start_client(index);
-//   }, index * 5000);
-// }
+for (let index = 0; index < 5; index++) {
+  setTimeout(() => {
+    start_client(index);
+  }, index * 5000);
+}
 
 app.get(route + "/add_client", async (req, res) => {
   start_client(clients.length);
